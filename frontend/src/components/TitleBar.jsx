@@ -21,8 +21,9 @@ import ReactMarkdown from 'react-markdown'
  *   howtoMarkdown: string
  *   instructionsMarkdown: string
  *   onSwitchProject: fn() — called when user clicks "Switch Project"
+ *   onLoadConfig: fn() — called when user clicks "Load Config" (shown when no config is loaded)
  */
-export default function TitleBar({ task, howtoMarkdown, instructionsMarkdown, onSwitchProject }) {
+export default function TitleBar({ task, howtoMarkdown, instructionsMarkdown, onSwitchProject, onLoadConfig }) {
   const [howtoAnchor, setHowtoAnchor] = useState(null)
   const [instrAnchor, setInstrAnchor] = useState(null)
 
@@ -39,6 +40,16 @@ export default function TitleBar({ task, howtoMarkdown, instructionsMarkdown, on
               size="small"
             >
               Switch Project
+            </Button>
+          )}
+          {!onSwitchProject && onLoadConfig && (
+            <Button
+              color="inherit"
+              startIcon={<FolderOpenIcon />}
+              onClick={onLoadConfig}
+              size="small"
+            >
+              Load Config
             </Button>
           )}
         </Box>

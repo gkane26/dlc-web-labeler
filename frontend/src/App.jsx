@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Box, CssBaseline, ThemeProvider, createTheme, CircularProgress, Typography } from '@mui/material'
+import { Box, CssBaseline, ThemeProvider, createTheme } from '@mui/material'
 import { v4 as uuidv4 } from 'uuid'
 
 import { fetchConfig, fetchConfigStatus, fetchFrame, submitLabels, releaseFrame } from './api'
@@ -59,8 +59,7 @@ export default function App() {
   // Auth state
   const [auth, setAuth] = useState(null) // {clientId}
   const [token, setToken] = useState(null) // raw token string for config upload
-  const [configNeeded, setConfigNeeded] = useState(false) // true when server has no config
-  const [configStatusChecked, setConfigStatusChecked] = useState(false) // true once /api/config/status has resolved
+  const [configModalOpen, setConfigModalOpen] = useState(false) // true when config browser is open
   const [switchingProject, setSwitchingProject] = useState(false) // true during project switch
   const switchingProjectRef = useRef(false) // ref mirror for WS effect (avoids stale closure)
 
@@ -142,7 +141,7 @@ export default function App() {
   // Load config after sign-in
   // -----------------------------------------------------------------------
   useEffect(() => {
-    if (!auth || configNeeded || !configStatusChecked) return
+    if (!auth) return
     setConfigLoading(true)
     setConfigError(null)
     fetchConfig()
@@ -155,10 +154,11 @@ export default function App() {
         }
       })
       .catch(err => {
-        setConfigError(err.message)
+        // 503 means no config is loaded yet — not a hard error, just no config
+        setConfigError(null)
         setConfigLoading(false)
       })
-  }, [auth, configNeeded, configStatusChecked])
+  }, [auth])
 
   // -----------------------------------------------------------------------
   // Load first frame after config loads
@@ -491,20 +491,16 @@ export default function App() {
   // -----------------------------------------------------------------------
   // Render
   // -----------------------------------------------------------------------
-  // Sign-in handler: check config status after auth
+  // Sign-in handler: check config status after auth, open modal if none loaded
   const handleSignIn = useCallback(async ({ clientId, token: rawToken }) => {
     setAuth({ clientId })
     setToken(rawToken)
     try {
       const status = await fetchConfigStatus()
-      if (!status.loaded) setConfigNeeded(true)
-      // else: configNeeded stays false — fetchConfig useEffect will fire once
-      // configStatusChecked is set to true below
+      if (!status.loaded) setConfigModalOpen(true)
     } catch {
-      // Status check failed — show the config browser rather than crashing
-      setConfigNeeded(true)
-    } finally {
-      setConfigStatusChecked(true)
+      // Status check failed — open config browser so user can load one
+      setConfigModalOpen(true)
     }
   }, [])
 
@@ -512,7 +508,8 @@ export default function App() {
   const handleConfigLoaded = useCallback(() => {
     setSwitchingProject(false)
     switchingProjectRef.current = false
-    // Clear old project state before re-enabling the config-fetch useEffect
+    setConfigModalOpen(false)
+    // Clear old project state then re-fetch config
     setConfig(null)
     setFrameData(null)
     setLabels(null)
@@ -522,9 +519,19 @@ export default function App() {
     setSelectedVideo(null)
     setSelectedKeypoint(null)
     setUseOverwrite(false)
-    // configStatusChecked is already true (set during sign-in); setting configNeeded(false)
-    // re-enables the fetchConfig useEffect which will fire exactly once.
-    setConfigNeeded(false)
+    // Re-fetch config now that a new one has been loaded
+    setConfigLoading(true)
+    fetchConfig()
+      .then(cfg => {
+        setConfig(cfg)
+        setConfigLoading(false)
+        if (cfg.dotsize) setDotSize(cfg.dotsize)
+        if (cfg.videos?.length > 0) setSelectedVideo(cfg.videos[0])
+      })
+      .catch(err => {
+        setConfigError(err.message)
+        setConfigLoading(false)
+      })
   }, [])
 
   // Switch project handler: auto-save then show config browser
@@ -548,7 +555,7 @@ export default function App() {
     setSelectedKeypoint(null)
     setUseOverwrite(false)
     // Show the config browser
-    setConfigNeeded(true)
+    setConfigModalOpen(true)
   }, [auth, frameData, labels, config, submitCurrentLabels])
 
   if (!auth) {
@@ -556,38 +563,6 @@ export default function App() {
       <ThemeProvider theme={darkTheme}>
         <CssBaseline />
         <SignInModal onSignIn={handleSignIn} />
-      </ThemeProvider>
-    )
-  }
-
-  if (configNeeded) {
-    return (
-      <ThemeProvider theme={darkTheme}>
-        <CssBaseline />
-        <ConfigUploadModal token={token} onConfigLoaded={handleConfigLoaded} />
-      </ThemeProvider>
-    )
-  }
-
-  if (configLoading) {
-    return (
-      <ThemeProvider theme={darkTheme}>
-        <CssBaseline />
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: 2 }}>
-          <CircularProgress />
-          <Typography>Loading configuration...</Typography>
-        </Box>
-      </ThemeProvider>
-    )
-  }
-
-  if (configError) {
-    return (
-      <ThemeProvider theme={darkTheme}>
-        <CssBaseline />
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
-          <Typography color="error">Failed to load config: {configError}</Typography>
-        </Box>
       </ThemeProvider>
     )
   }
@@ -607,7 +582,8 @@ export default function App() {
           task={config?.task || ''}
           howtoMarkdown={config?.howto_markdown || ''}
           instructionsMarkdown={config?.instructions_markdown || ''}
-          onSwitchProject={handleSwitchProject}
+          onSwitchProject={config ? handleSwitchProject : null}
+          onLoadConfig={!config ? () => setConfigModalOpen(true) : null}
         />
 
         {/* Main content area */}
@@ -675,6 +651,15 @@ export default function App() {
         onClose={() => setNoFramesOpen(false)}
       />
       <ServerStoppedDialog open={serverStoppedOpen} />
+
+      {/* Config browser — optional overlay, opened via TitleBar or on startup when no config */}
+      {configModalOpen && (
+        <ConfigUploadModal
+          token={token}
+          onConfigLoaded={handleConfigLoaded}
+          onClose={() => { setConfigModalOpen(false); setSwitchingProject(false); switchingProjectRef.current = false }}
+        />
+      )}
     </ThemeProvider>
   )
 }

@@ -10,14 +10,15 @@ import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile'
 import { browseDir, loadConfigFromPath } from '../api'
 
 /**
- * ConfigUploadModal — shown after sign-in when the server has no config loaded.
+ * ConfigUploadModal — shown when the user needs to load a config.
  * Provides a server-side directory browser restricted to /mnt.
  *
  * Props:
  *   onConfigLoaded: fn(taskName) — called after a successful config load
+ *   onClose: fn() — called when the user dismisses without loading (optional)
  *   token: string — raw auth token for the load request
  */
-export default function ConfigUploadModal({ onConfigLoaded, token }) {
+export default function ConfigUploadModal({ onConfigLoaded, onClose, token }) {
   const [currentPath, setCurrentPath] = useState('/mnt')
   const [entries, setEntries] = useState([])
   const [selectedFile, setSelectedFile] = useState(null)
@@ -73,13 +74,12 @@ export default function ConfigUploadModal({ onConfigLoaded, token }) {
   }
 
   return (
-    <Dialog open disableEscapeKeyDown onClose={() => {}} PaperProps={{ sx: { minWidth: 520, maxWidth: 620 } }}>
+    <Dialog open onClose={onClose} PaperProps={{ sx: { minWidth: 520, maxWidth: 620 } }}>
       <DialogTitle>Load DLC Config</DialogTitle>
       <Box component="form" onSubmit={handleSubmit}>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 1, pb: 0 }}>
           <Typography variant="body2" color="text.secondary">
-            No configuration is loaded. Browse the server filesystem to select a
-            DLC <code>config.yaml</code> file.
+            Browse the server filesystem to select a DLC <code>config.yaml</code> file.
           </Typography>
 
           {error && <Alert severity="error">{error}</Alert>}
@@ -169,7 +169,17 @@ export default function ConfigUploadModal({ onConfigLoaded, token }) {
             />
           )}
         </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2 }}>
+        <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
+          {onClose && (
+            <Button
+              type="button"
+              variant="text"
+              onClick={onClose}
+              disabled={loading}
+            >
+              Cancel
+            </Button>
+          )}
           <Button
             type="submit"
             variant="contained"
