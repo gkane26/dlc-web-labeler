@@ -235,6 +235,103 @@ def get_config_status():
     return {"loaded": is_config_loaded()}
 
 
+# ---------------------------------------------------------------------------
+# Server-side directory browser
+# ---------------------------------------------------------------------------
+
+_BROWSE_ROOT = Path("/mnt")
+
+
+@app.get("/api/browse")
+def browse_directory(path: str = Query(_BROWSE_ROOT.as_posix())):
+    """List directory contents under /mnt. Only shows subdirectories and .yaml/.yml files."""
+    target = Path(path).resolve()
+
+    # Security: restrict to _BROWSE_ROOT
+    try:
+        target.relative_to(_BROWSE_ROOT.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied: path is outside the allowed root.")
+
+    if not target.exists():
+        raise HTTPException(status_code=404, detail=f"Path not found: {path}")
+    if not target.is_dir():
+        raise HTTPException(status_code=400, detail="Path is not a directory.")
+
+    entries = []
+    try:
+        for item in sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
+            if item.name.startswith("."):
+                continue
+            if item.is_dir():
+                entries.append({"name": item.name, "path": str(item), "is_dir": True})
+            elif item.suffix.lower() in (".yaml", ".yml"):
+                entries.append({"name": item.name, "path": str(item), "is_dir": False})
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Permission denied reading directory.")
+
+    return {"path": str(target), "entries": entries}
+
+
+class ConfigLoadBody(BaseModel):
+    token: str
+    path: str
+
+
+@app.post("/api/config/load")
+async def load_config_from_path(body: ConfigLoadBody):
+    """Load a config.yaml from a server-side path. Token-protected."""
+    import yaml
+
+    # 1. Verify token
+    expected = os.environ.get("DLC_TOKEN", "")
+    if not expected or body.token != expected:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    # 2. Resolve and validate path
+    config_path = Path(body.path).resolve()
+
+    # Security: restrict to _BROWSE_ROOT
+    try:
+        config_path.relative_to(_BROWSE_ROOT.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied: path is outside the allowed root.")
+
+    if not config_path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {body.path}")
+    if not config_path.suffix.lower() in (".yaml", ".yml"):
+        raise HTTPException(status_code=400, detail="File must be a .yaml or .yml file")
+
+    # 3. Validate YAML content
+    try:
+        with open(config_path) as f:
+            parsed = yaml.safe_load(f)
+        if not isinstance(parsed, dict):
+            raise ValueError("Config must be a YAML mapping")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid YAML: {e}")
+
+    # 4. If a config is already loaded, flush pending labels and notify clients
+    if is_config_loaded():
+        try:
+            await asyncio.to_thread(flush_pending_labels)
+        except Exception as exc:
+            print(f"[config load] flush_pending_labels failed: {exc}")
+        await ws_manager.broadcast({"type": "server_shutdown"})
+        await ws_manager.close_all()
+
+    # 5. Load config and init cache (no temp file needed — file is on the server)
+    try:
+        await asyncio.to_thread(load_config, str(config_path))
+        await asyncio.to_thread(init_human_label_cache)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Config load failed: {e}")
+
+    return {"loaded": True, "task": get_config().get("Task", "")}
+
+
 @app.post("/api/config")
 async def upload_config(token: str = Form(...), file: UploadFile = File(...)):
     """Upload a config.yaml file. Protected by the auth token."""

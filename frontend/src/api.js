@@ -56,6 +56,41 @@ export async function uploadConfig(file, token) {
 }
 
 /**
+ * Browse a server-side directory.
+ * @param {string} [path] - Directory path to browse (defaults to server root /mnt)
+ * @returns {Promise<{path: string, entries: Array<{name: string, path: string, is_dir: boolean}>}>}
+ */
+export async function browseDir(path) {
+  const params = new URLSearchParams()
+  if (path) params.set('path', path)
+  const res = await fetch(`/api/browse?${params.toString()}`)
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.detail || `Browse failed: ${res.status}`)
+  }
+  return res.json()
+}
+
+/**
+ * Load a config.yaml from a server-side file path.
+ * @param {string} path  - Absolute path to config file on the server
+ * @param {string} token - Auth token
+ * @returns {Promise<{loaded: boolean, task: string}>}
+ */
+export async function loadConfigFromPath(path, token) {
+  const res = await fetch('/api/config/load', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, token }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.detail || `Config load failed: ${res.status}`)
+  }
+  return res.json()
+}
+
+/**
  * Fetch application config.
  * @returns {Promise<{task, instructions_markdown, howto_markdown, bodyparts, colormap, videos, dotsize, alphavalue, pcutoff}>}
  */
