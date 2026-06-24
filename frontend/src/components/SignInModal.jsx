@@ -17,7 +17,7 @@ import { authUser } from '../api'
  * Non-closeable MUI Dialog.
  *
  * Props:
- *   onSignIn: fn({clientId}) — called on successful auth
+ *   onSignIn: fn({clientId, token}) — called on successful auth
  */
 export default function SignInModal({ onSignIn }) {
   const [token, setToken] = useState('')
@@ -35,7 +35,7 @@ export default function SignInModal({ onSignIn }) {
     try {
       const data = await authUser(token.trim())
       if (data.ok) {
-        onSignIn({ clientId: data.client_id })
+        onSignIn({ clientId: data.client_id, token: token.trim() })
       } else {
         setError('Authentication failed. Please check your token.')
       }

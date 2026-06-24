@@ -2,12 +2,13 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Box, CssBaseline, ThemeProvider, createTheme, CircularProgress, Typography } from '@mui/material'
 import { v4 as uuidv4 } from 'uuid'
 
-import { fetchConfig, fetchFrame, submitLabels, releaseFrame } from './api'
+import { fetchConfig, fetchConfigStatus, fetchFrame, submitLabels, releaseFrame } from './api'
 import { generatePaletteColors } from './utils/colors'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useHeartbeat } from './hooks/useHeartbeat'
 
 import SignInModal from './components/SignInModal'
+import ConfigUploadModal from './components/ConfigUploadModal'
 import TitleBar from './components/TitleBar'
 import LeftSidebar from './components/LeftSidebar'
 import LabelCanvas from './components/LabelCanvas'
@@ -56,7 +57,9 @@ function firstUnlabeled(bodyparts, labels) {
 
 export default function App() {
   // Auth state
-  const [auth, setAuth] = useState(null) // {clientId, username}
+  const [auth, setAuth] = useState(null) // {clientId}
+  const [token, setToken] = useState(null) // raw token string for config upload
+  const [configNeeded, setConfigNeeded] = useState(false) // true when server has no config
 
   // Config state
   const [config, setConfig] = useState(null)
@@ -134,7 +137,7 @@ export default function App() {
   // Load config after sign-in
   // -----------------------------------------------------------------------
   useEffect(() => {
-    if (!auth) return
+    if (!auth || configNeeded) return
     setConfigLoading(true)
     setConfigError(null)
     fetchConfig()
@@ -150,7 +153,7 @@ export default function App() {
         setConfigError(err.message)
         setConfigLoading(false)
       })
-  }, [auth])
+  }, [auth, configNeeded])
 
   // -----------------------------------------------------------------------
   // Load first frame after config loads
@@ -483,11 +486,54 @@ export default function App() {
   // -----------------------------------------------------------------------
   // Render
   // -----------------------------------------------------------------------
+  // Sign-in handler: check config status after auth
+  const handleSignIn = useCallback(async ({ clientId, token: rawToken }) => {
+    setAuth({ clientId })
+    setToken(rawToken)
+    try {
+      const status = await fetchConfigStatus()
+      if (!status.loaded) setConfigNeeded(true)
+      // else: proceed normally — the existing useEffect on `auth` will call fetchConfig()
+    } catch {
+      // If status check fails, assume config is present and proceed
+    }
+  }, [])
+
+  // Config-upload success handler
+  const handleConfigLoaded = useCallback(() => {
+    setConfigNeeded(false)
+    // The existing useEffect watching `auth` won't re-fire, so trigger config fetch manually:
+    setConfigLoading(true)
+    setConfigError(null)
+    fetchConfig()
+      .then(cfg => {
+        setConfig(cfg)
+        setConfigLoading(false)
+        if (cfg.dotsize) setDotSize(cfg.dotsize)
+        if (cfg.videos?.length > 0) {
+          setSelectedVideo(cfg.videos[0])
+        }
+      })
+      .catch(err => {
+        setConfigError(err.message)
+        setConfigLoading(false)
+      })
+  }, [])
+
   if (!auth) {
     return (
       <ThemeProvider theme={darkTheme}>
         <CssBaseline />
-        <SignInModal onSignIn={({ clientId }) => setAuth({ clientId })} />
+        <SignInModal onSignIn={handleSignIn} />
+      </ThemeProvider>
+    )
+  }
+
+  if (configNeeded) {
+    return (
+      <ThemeProvider theme={darkTheme}>
+        <CssBaseline />
+        <ConfigUploadModal token={token} onConfigLoaded={handleConfigLoaded} />
       </ThemeProvider>
     )
   }

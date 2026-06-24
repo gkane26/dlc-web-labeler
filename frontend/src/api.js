@@ -25,6 +25,37 @@ export async function authUser(token) {
 }
 
 /**
+ * Check whether the server has a config loaded.
+ * @returns {Promise<{loaded: boolean}>}
+ */
+export async function fetchConfigStatus() {
+  const res = await fetch('/api/config/status')
+  if (!res.ok) throw new Error(`Config status check failed: ${res.status}`)
+  return res.json()
+}
+
+/**
+ * Upload a config.yaml file to the server.
+ * @param {File} file   - File object from a <input type="file"> picker
+ * @param {string} token - Auth token
+ * @returns {Promise<{loaded: boolean, task: string}>}
+ */
+export async function uploadConfig(file, token) {
+  const formData = new FormData()
+  formData.append('token', token)
+  formData.append('file', file)
+  const res = await fetch('/api/config', {
+    method: 'POST',
+    body: formData,
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.detail || `Upload failed: ${res.status}`)
+  }
+  return res.json()
+}
+
+/**
  * Fetch application config.
  * @returns {Promise<{task, instructions_markdown, howto_markdown, bodyparts, colormap, videos, dotsize, alphavalue, pcutoff}>}
  */

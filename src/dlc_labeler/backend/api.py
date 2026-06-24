@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -22,6 +22,7 @@ from .dlc_io import (
     get_project_path,
     get_videos,
     init_human_label_cache,
+    is_config_loaded,
     is_frame_labeled,
     load_config,
     read_human_labels,
@@ -116,10 +117,9 @@ async def lifespan(app: FastAPI):
 
     # -- Startup --
     config_path = os.environ.get("DLC_CONFIG_PATH", "")
-    if not config_path:
-        raise RuntimeError("DLC_CONFIG_PATH environment variable is required")
-    load_config(config_path)
-    init_human_label_cache()
+    if config_path:
+        load_config(config_path)
+        init_human_label_cache()
 
     # Register stale callback with the running loop
     loop = asyncio.get_running_loop()
@@ -211,12 +211,82 @@ def post_auth(body: AuthBody):
 
 
 # ---------------------------------------------------------------------------
+# Config-loaded guard
+# ---------------------------------------------------------------------------
+
+
+def _require_config():
+    """Raise HTTP 503 if no config has been loaded yet."""
+    if not is_config_loaded():
+        raise HTTPException(
+            status_code=503,
+            detail="No config loaded. Please upload a config.yaml first.",
+        )
+
+
+# ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
 
+@app.get("/api/config/status")
+def get_config_status():
+    """Lightweight check: has a config been loaded?"""
+    return {"loaded": is_config_loaded()}
+
+
+@app.post("/api/config")
+async def upload_config(token: str = Form(...), file: UploadFile = File(...)):
+    """Upload a config.yaml file. Protected by the auth token."""
+    import tempfile
+    import yaml
+
+    # 1. Verify token
+    expected = os.environ.get("DLC_TOKEN", "")
+    if not expected or token != expected:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    # 2. Validate file extension
+    if not (file.filename or "").lower().endswith((".yaml", ".yml")):
+        raise HTTPException(status_code=400, detail="File must be a .yaml or .yml file")
+
+    # 3. Read and parse YAML
+    try:
+        content = await file.read()
+        parsed = yaml.safe_load(content)
+        if not isinstance(parsed, dict):
+            raise ValueError("Config must be a YAML mapping")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid YAML: {e}")
+
+    # 4. If a config is already loaded, flush pending labels and notify clients
+    if is_config_loaded():
+        try:
+            await asyncio.to_thread(flush_pending_labels)
+        except Exception as exc:
+            print(f"[config upload] flush_pending_labels failed: {exc}")
+        await ws_manager.broadcast({"type": "server_shutdown"})
+        await ws_manager.close_all()
+
+    # 5. Save to a stable temp path and reload
+    tmp_dir = Path(tempfile.mkdtemp(prefix="dlc_config_"))
+    config_path = tmp_dir / (file.filename or "config.yaml")
+    config_path.write_bytes(content)
+
+    try:
+        await asyncio.to_thread(load_config, str(config_path))
+        await asyncio.to_thread(init_human_label_cache)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Config load failed: {e}")
+
+    return {"loaded": True, "task": get_config().get("Task", "")}
+
+
 @app.get("/api/config")
 def get_config_endpoint():
+    _require_config()
     cfg = get_config()
 
     instructions_markdown = ""
@@ -264,6 +334,7 @@ def get_frame(
     after_frame_idx: Optional[int] = Query(None),
     before_frame_idx: Optional[int] = Query(None),
 ):
+    _require_config()
     frames = get_frame_files(video)
     if not frames:
         raise HTTPException(status_code=404, detail=f"No frames found for video '{video}'")
@@ -364,6 +435,7 @@ class LabelSubmission(BaseModel):
 
 @app.put("/api/labels")
 def put_labels(body: LabelSubmission):
+    _require_config()
     frames = get_frame_files(body.video)
     if body.frame_idx < 0 or body.frame_idx >= len(frames):
         raise HTTPException(status_code=400, detail="frame_idx out of range")
@@ -399,12 +471,14 @@ class ReleaseBody(BaseModel):
 
 @app.post("/api/release")
 def post_release(body: ReleaseBody):
+    _require_config()
     release_frame(body.client_id, body.video, body.frame_idx)
     return {"released": True}
 
 
 @app.post("/api/heartbeat")
 def post_heartbeat(body: ReleaseBody):
+    _require_config()
     ok = heartbeat(body.client_id, body.video, body.frame_idx)
     if not ok:
         raise HTTPException(status_code=404, detail="Lease not found or stale")
@@ -417,6 +491,7 @@ def post_heartbeat(body: ReleaseBody):
 
 @app.get("/frames/{video}/{filename:path}", include_in_schema=False)
 def serve_frame(video: str, filename: str):
+    _require_config()
     path = get_labeled_data_dir(video) / filename
     if not path.exists():
         raise HTTPException(status_code=404, detail="Frame not found")

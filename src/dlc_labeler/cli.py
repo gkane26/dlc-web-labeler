@@ -13,9 +13,10 @@ def main():
     )
     parser.add_argument(
         "--config",
-        required=True,
+        required=False,
+        default="",
         metavar="PATH",
-        help="Path to the DLC config.yaml file.",
+        help="Path to the DLC config.yaml file (optional; can be uploaded via the UI).",
     )
     parser.add_argument(
         "--token",
@@ -52,11 +53,12 @@ def main():
     args = parser.parse_args()
 
     # Resolve and validate paths
-    config_path = Path(args.config).expanduser().resolve()
-    if not config_path.exists():
-        raise SystemExit(f"Config file not found: {config_path}")
+    if args.config:
+        config_path = Path(args.config).expanduser().resolve()
+        if not config_path.exists():
+            raise SystemExit(f"Config file not found: {config_path}")
+        os.environ["DLC_CONFIG_PATH"] = str(config_path)
 
-    os.environ["DLC_CONFIG_PATH"] = str(config_path)
     os.environ["DLC_TOKEN"] = args.token
 
     if args.instructions:

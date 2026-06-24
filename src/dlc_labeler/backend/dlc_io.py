@@ -101,6 +101,11 @@ def _ensure_cache_loaded() -> None:
     init_human_label_cache()
 
 
+def is_config_loaded() -> bool:
+    """Return True if a config has been loaded via load_config()."""
+    return _config is not None
+
+
 def load_config(config_path: str) -> Dict[str, Any]:
     global _config, _project_path
     p = Path(config_path)
