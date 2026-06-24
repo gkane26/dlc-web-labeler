@@ -61,6 +61,7 @@ export default function App() {
   const [token, setToken] = useState(null) // raw token string for config upload
   const [configNeeded, setConfigNeeded] = useState(false) // true when server has no config
   const [switchingProject, setSwitchingProject] = useState(false) // true during project switch
+  const switchingProjectRef = useRef(false) // ref mirror for WS effect (avoids stale closure)
 
   // Config state
   const [config, setConfig] = useState(null)
@@ -130,11 +131,11 @@ export default function App() {
       // If stale dialog is already open, upgrade the message
       setFrameTaken(true)
     } else if (type === 'server_shutdown') {
-      if (!switchingProject) {
+      if (!switchingProjectRef.current) {
         setServerStoppedOpen(true)
       }
     }
-  }, [lastMessage, switchingProject])
+  }, [lastMessage])
 
   // -----------------------------------------------------------------------
   // Load config after sign-in
@@ -505,36 +506,26 @@ export default function App() {
   // Config-upload success handler
   const handleConfigLoaded = useCallback(() => {
     setSwitchingProject(false)
-    setConfigNeeded(false)
-    // Clear old project state
+    switchingProjectRef.current = false
+    // Clear old project state before re-enabling the config-fetch useEffect
+    setConfig(null)
     setFrameData(null)
     setLabels(null)
     setLabelHistory([])
     setFrameError(null)
+    setConfigError(null)
     setSelectedVideo(null)
     setSelectedKeypoint(null)
     setUseOverwrite(false)
-    // The existing useEffect watching `auth` won't re-fire, so trigger config fetch manually:
-    setConfigLoading(true)
-    setConfigError(null)
-    fetchConfig()
-      .then(cfg => {
-        setConfig(cfg)
-        setConfigLoading(false)
-        if (cfg.dotsize) setDotSize(cfg.dotsize)
-        if (cfg.videos?.length > 0) {
-          setSelectedVideo(cfg.videos[0])
-        }
-      })
-      .catch(err => {
-        setConfigError(err.message)
-        setConfigLoading(false)
-      })
+    // Setting configNeeded(false) with auth still set triggers the useEffect([auth, configNeeded])
+    // to call fetchConfig() exactly once — no direct call needed here.
+    setConfigNeeded(false)
   }, [])
 
   // Switch project handler: auto-save then show config browser
   const handleSwitchProject = useCallback(async () => {
     setSwitchingProject(true)
+    switchingProjectRef.current = true
     // Auto-save current frame labels if any exist
     if (auth && frameData && labels && config) {
       const hasAnyLabel = Object.values(labels).some(v => v !== null)
