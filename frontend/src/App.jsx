@@ -60,6 +60,7 @@ export default function App() {
   const [auth, setAuth] = useState(null) // {clientId}
   const [token, setToken] = useState(null) // raw token string for config upload
   const [configNeeded, setConfigNeeded] = useState(false) // true when server has no config
+  const [configStatusChecked, setConfigStatusChecked] = useState(false) // true once /api/config/status has resolved
   const [switchingProject, setSwitchingProject] = useState(false) // true during project switch
   const switchingProjectRef = useRef(false) // ref mirror for WS effect (avoids stale closure)
 
@@ -141,7 +142,7 @@ export default function App() {
   // Load config after sign-in
   // -----------------------------------------------------------------------
   useEffect(() => {
-    if (!auth || configNeeded) return
+    if (!auth || configNeeded || !configStatusChecked) return
     setConfigLoading(true)
     setConfigError(null)
     fetchConfig()
@@ -157,7 +158,7 @@ export default function App() {
         setConfigError(err.message)
         setConfigLoading(false)
       })
-  }, [auth, configNeeded])
+  }, [auth, configNeeded, configStatusChecked])
 
   // -----------------------------------------------------------------------
   // Load first frame after config loads
@@ -497,9 +498,13 @@ export default function App() {
     try {
       const status = await fetchConfigStatus()
       if (!status.loaded) setConfigNeeded(true)
-      // else: proceed normally — the existing useEffect on `auth` will call fetchConfig()
+      // else: configNeeded stays false — fetchConfig useEffect will fire once
+      // configStatusChecked is set to true below
     } catch {
-      // If status check fails, assume config is present and proceed
+      // Status check failed — show the config browser rather than crashing
+      setConfigNeeded(true)
+    } finally {
+      setConfigStatusChecked(true)
     }
   }, [])
 
@@ -517,8 +522,8 @@ export default function App() {
     setSelectedVideo(null)
     setSelectedKeypoint(null)
     setUseOverwrite(false)
-    // Setting configNeeded(false) with auth still set triggers the useEffect([auth, configNeeded])
-    // to call fetchConfig() exactly once — no direct call needed here.
+    // configStatusChecked is already true (set during sign-in); setting configNeeded(false)
+    // re-enables the fetchConfig useEffect which will fire exactly once.
     setConfigNeeded(false)
   }, [])
 
