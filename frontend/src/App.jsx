@@ -60,6 +60,7 @@ export default function App() {
   const [auth, setAuth] = useState(null) // {clientId}
   const [token, setToken] = useState(null) // raw token string for config upload
   const [configNeeded, setConfigNeeded] = useState(false) // true when server has no config
+  const [switchingProject, setSwitchingProject] = useState(false) // true during project switch
 
   // Config state
   const [config, setConfig] = useState(null)
@@ -129,9 +130,11 @@ export default function App() {
       // If stale dialog is already open, upgrade the message
       setFrameTaken(true)
     } else if (type === 'server_shutdown') {
-      setServerStoppedOpen(true)
+      if (!switchingProject) {
+        setServerStoppedOpen(true)
+      }
     }
-  }, [lastMessage])
+  }, [lastMessage, switchingProject])
 
   // -----------------------------------------------------------------------
   // Load config after sign-in
@@ -501,7 +504,16 @@ export default function App() {
 
   // Config-upload success handler
   const handleConfigLoaded = useCallback(() => {
+    setSwitchingProject(false)
     setConfigNeeded(false)
+    // Clear old project state
+    setFrameData(null)
+    setLabels(null)
+    setLabelHistory([])
+    setFrameError(null)
+    setSelectedVideo(null)
+    setSelectedKeypoint(null)
+    setUseOverwrite(false)
     // The existing useEffect watching `auth` won't re-fire, so trigger config fetch manually:
     setConfigLoading(true)
     setConfigError(null)
@@ -519,6 +531,29 @@ export default function App() {
         setConfigLoading(false)
       })
   }, [])
+
+  // Switch project handler: auto-save then show config browser
+  const handleSwitchProject = useCallback(async () => {
+    setSwitchingProject(true)
+    // Auto-save current frame labels if any exist
+    if (auth && frameData && labels && config) {
+      const hasAnyLabel = Object.values(labels).some(v => v !== null)
+      if (hasAnyLabel) {
+        try { await submitCurrentLabels() } catch { /* best-effort */ }
+      }
+    }
+    // Clear all project-specific state
+    setConfig(null)
+    setFrameData(null)
+    setLabels(null)
+    setLabelHistory([])
+    setFrameError(null)
+    setSelectedVideo(null)
+    setSelectedKeypoint(null)
+    setUseOverwrite(false)
+    // Show the config browser
+    setConfigNeeded(true)
+  }, [auth, frameData, labels, config, submitCurrentLabels])
 
   if (!auth) {
     return (
@@ -576,6 +611,7 @@ export default function App() {
           task={config?.task || ''}
           howtoMarkdown={config?.howto_markdown || ''}
           instructionsMarkdown={config?.instructions_markdown || ''}
+          onSwitchProject={handleSwitchProject}
         />
 
         {/* Main content area */}

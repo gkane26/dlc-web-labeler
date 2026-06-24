@@ -10,6 +10,7 @@ import {
 } from '@mui/material'
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
+import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import ReactMarkdown from 'react-markdown'
 
 /**
@@ -19,16 +20,28 @@ import ReactMarkdown from 'react-markdown'
  *   task: string
  *   howtoMarkdown: string
  *   instructionsMarkdown: string
+ *   onSwitchProject: fn() — called when user clicks "Switch Project"
  */
-export default function TitleBar({ task, howtoMarkdown, instructionsMarkdown }) {
+export default function TitleBar({ task, howtoMarkdown, instructionsMarkdown, onSwitchProject }) {
   const [howtoAnchor, setHowtoAnchor] = useState(null)
   const [instrAnchor, setInstrAnchor] = useState(null)
 
   return (
     <AppBar position="static" color="primary" elevation={2}>
       <Toolbar sx={{ position: 'relative' }}>
-        {/* Left spacer to allow centering */}
-        <Box sx={{ flex: 1 }} />
+        {/* Left-side buttons */}
+        <Box sx={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+          {onSwitchProject && (
+            <Button
+              color="inherit"
+              startIcon={<FolderOpenIcon />}
+              onClick={onSwitchProject}
+              size="small"
+            >
+              Switch Project
+            </Button>
+          )}
+        </Box>
 
         {/* Centered title */}
         <Typography
