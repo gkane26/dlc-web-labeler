@@ -1,0 +1,8 @@
+*.py[cod]
+__pycache__/
+.web
+assets/external/
+*.db
+.states
+frontend/node_modules
+uv.lock

@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dlc-labeler"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas",
+    "h5py",
+    "tables",
+    "pyyaml",
+    "filelock",
+    "fastapi[standard]",
+    "uvicorn[standard]",
+    "numpy",
+    "websockets",
+]
+
+[project.scripts]
+dlc-web-labeler = "dlc_labeler.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dlc_labeler"]
