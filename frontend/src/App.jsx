@@ -137,28 +137,9 @@ export default function App() {
     }
   }, [lastMessage])
 
-  // -----------------------------------------------------------------------
-  // Load config after sign-in
-  // -----------------------------------------------------------------------
-  useEffect(() => {
-    if (!auth) return
-    setConfigLoading(true)
-    setConfigError(null)
-    fetchConfig()
-      .then(cfg => {
-        setConfig(cfg)
-        setConfigLoading(false)
-        if (cfg.dotsize) setDotSize(cfg.dotsize)
-        if (cfg.videos?.length > 0) {
-          setSelectedVideo(cfg.videos[0])
-        }
-      })
-      .catch(err => {
-        // 503 means no config is loaded yet — not a hard error, just no config
-        setConfigError(null)
-        setConfigLoading(false)
-      })
-  }, [auth])
+  // NOTE: Config is loaded explicitly in handleSignIn (when already present on
+  // the server) and in handleConfigLoaded (after the user selects one via the
+  // modal).  There is no useEffect-based auto-fetch here to avoid races.
 
   // -----------------------------------------------------------------------
   // Load first frame after config loads
@@ -491,13 +472,30 @@ export default function App() {
   // -----------------------------------------------------------------------
   // Render
   // -----------------------------------------------------------------------
-  // Sign-in handler: check config status after auth, open modal if none loaded
+  // Sign-in handler: check config status, then either load config or open modal
   const handleSignIn = useCallback(async ({ clientId, token: rawToken }) => {
     setAuth({ clientId })
     setToken(rawToken)
     try {
       const status = await fetchConfigStatus()
-      if (!status.loaded) setConfigModalOpen(true)
+      if (!status.loaded) {
+        setConfigModalOpen(true)
+      } else {
+        // Config already on the server — fetch it directly (no race with modal)
+        setConfigLoading(true)
+        setConfigError(null)
+        fetchConfig()
+          .then(cfg => {
+            setConfig(cfg)
+            setConfigLoading(false)
+            if (cfg.dotsize) setDotSize(cfg.dotsize)
+            if (cfg.videos?.length > 0) setSelectedVideo(cfg.videos[0])
+          })
+          .catch(err => {
+            setConfigError(err.message)
+            setConfigLoading(false)
+          })
+      }
     } catch {
       // Status check failed — open config browser so user can load one
       setConfigModalOpen(true)
